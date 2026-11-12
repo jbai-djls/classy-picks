@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta property="og:title" content="CLASSY Purchase Order - Picking List"><meta property="og:image" content="https://jbai-djls.github.io/classy-picks/logo.png"><meta name="twitter:card" content="summary">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%232563eb%22/%3E%3Ctext x=%2216%22 y=%2223%22 font-size=%2217%22 font-family=%22Arial%22 font-weight=%22bold%22 fill=%22white%22 text-anchor=%22middle%22%3EC%3C/text%3E%3C/svg%3E">
 <title>CLASSY Purchase Order · Picking List</title>
 <style>
   :root { color-scheme: light; }
@@ -68,11 +68,13 @@
       <div class="row">Lines:<b id="rLines"></b>
         &nbsp;Ordered:<b id="rOrdered"></b> &nbsp;Picked:<b id="rPicked"></b>
         &nbsp;Short:<b id="rShort"></b></div>
+      <div class="row">Picked cost:<b id="rPCost">&#8369;&mdash;</b></div>
       <div class="row">Time:<b id="rTime"></b></div>
     </div>
-    <div><img class="qr" id="qrImg" alt="QR"></div>
+    <div id="qrWrap"><img class="qr" id="qrImg" alt="QR"></div>
     <div><a class="btnGhost" id="dlPng" download="pick.png">Save QR image (long-press on phone)</a>
     <a class="btnGhost" id="dlFile" download="pick.json">Save result file (.json)</a></div>
+    <p class="hint" id="submitNote" style="display:none"></p>
     <p class="hint">Result generated — send the QR image back via chat.</p>
     <button class="btnGhost" id="regen" style="cursor:pointer">Edit again (new revision)</button>
   </div>
@@ -83,6 +85,8 @@
     <span>Total picked: <b id="sPicked">0</b></span>
     <span>Shortage: <b id="sShort">0</b></span>
     <span>out-of-stock lines: <b id="sShortLines">0</b></span>
+    <span>Ordered cost: <b id="sOCost">&#8369;&mdash;</b></span>
+    <span>Picked cost: <b id="sPCost">&#8369;&mdash;</b></span>
   </div>
   <button class="primary" id="btnDone">Finish Picking</button>
   <p class="hint">Review quantities, then finish picking to generate the QR result.</p>
@@ -2389,7 +2393,8 @@ var qrcode = function() {
 <script>
 "use strict";
 var MODE = "hash";
-var T = {"title":"Picking List","store":"CLASSY Purchase Order","po":"PO No.","orderQty":"Order","picked":"Picked","unitCost":"Unit cost","name":"Product","color":"Color","size":"Size","img":"Photo","note":"Note","notePh":"Note for this line (optional)","qtyPh":"Qty","all":"In stock","partShort":"Short","out":"Out of stock","over":"Over-picked","totalOrdered":"Total ordered","totalPicked":"Total picked","totalShort":"Shortage","linesShort":"out-of-stock lines","done":"Finish Picking","doneHint":"Review quantities, then finish picking to generate the QR result.","resultTitle":"CLASSY Picking Result","listName":"List","listNo":"PO No.","statusLabel":"Status","stComplete":"Completed","stPartial":"Partial","stEmpty":"Nothing picked","totalLines":"Lines","orderedL":"Ordered","pickedL":"Picked","shortL":"Short","timeL":"Time","revL":"Rev","savePng":"Save QR image (long-press on phone)","saveFile":"Save result file (.json)","regenerate":"Edit again (new revision)","done2":"Result generated — send the QR image back via chat.","stored":"Draft restored","invalidQty":"Invalid quantity (0-9999)","confirmOver":"Some lines exceed the ordered qty. Continue anyway?","badLink":"This pick link is invalid or corrupted — please ask for a new link."};
+var CLOUD = null;
+var T = {"title":"Picking List","store":"CLASSY Purchase Order","po":"PO No.","orderQty":"Order","picked":"Picked","unitCost":"Unit cost","name":"Product","color":"Color","size":"Size","img":"Photo","note":"Note","notePh":"Note for this line (optional)","qtyPh":"Qty","all":"In stock","partShort":"Short","out":"Out of stock","over":"Over-picked","totalOrdered":"Total ordered","totalPicked":"Total picked","totalShort":"Shortage","linesShort":"out-of-stock lines","costUnit":"Unit cost","costSub":"Cost","orderedCost":"Ordered cost","pickedCost":"Picked cost","done":"Finish Picking","doneHint":"Review quantities, then finish picking to generate the QR result.","resultTitle":"CLASSY Picking Result","listName":"List","listNo":"PO No.","statusLabel":"Status","stComplete":"Completed","stPartial":"Partial","stEmpty":"Nothing picked","totalLines":"Lines","orderedL":"Ordered","pickedL":"Picked","shortL":"Short","timeL":"Time","revL":"Rev","savePng":"Save QR image (long-press on phone)","saveFile":"Save result file (.json)","regenerate":"Edit again (new revision)","done2":"Result generated — send the QR image back via chat.","stored":"Draft restored","invalidQty":"Invalid quantity (0-9999)","confirmOver":"Some lines exceed the ordered qty. Continue anyway?","submitting":"Submitting…","submitOk":"Pick result submitted","submitOkHint":"Done — the merchant has been notified automatically. No QR code needed.","submitFail":"Submit failed — your edits are saved, retry or use the QR fallback.","badLink":"This pick link is invalid or corrupted — please ask for a new link."};
 var INLINE_PO = null;
 var $ = function (id) { return document.getElementById(id); };
 var PO = null;
@@ -2399,44 +2404,69 @@ function toast(msg) { var t = $('toast'); t.textContent = msg; t.classList.add('
   setTimeout(function () { t.classList.remove('show'); }, 1600); }
 
 /* ---- 通用页:从链接 hash 解码数据(gzip+base64url,与 CLASSY po-publish 一致) ---- */
+/* 行级校验与 CLASSY 端 parseShareHash 同强度:hash 载荷无签名,链接可被传输途中
+ * 改写——不合格数据整页拒绝,杜绝注入到 innerHTML 的可能(2026-11-12 审计)。 */
+function _badLink() { throw new Error(T.badLink); }
+function _reKey6(k) { return /^[0-9a-z]{6}$/.test(String(k || '')); }
+function _numOk(v) { return typeof v === 'number' && isFinite(v); }
+
 async function decodeHashPo() {
   var m = /[#&]d=([A-Za-z0-9_-]+)/.exec(location.hash || '');
   if (!m) throw new Error(T.badLink);
   var b64 = m[1].replace(/-/g, '+').replace(/_/g, '/');
-  var bin = atob(b64 + '==='.slice((b64.length + 3) % 4));
+  /* 补齐公式与 CLASSY 端 b64urlToBytes 一致:(4-len%4)%4。
+   * 2026-11-12 审计:旧公式 '==='.slice((len+3)%4) 在 len%4==0(原文节数 %3==0,
+   * 约 1/3 的单子)时补 3 个 '=' → atob 失败 → B 通道链接整页"无效"。 */
+  var bin = atob(b64 + '='.repeat((4 - b64.length % 4) % 4));
   var bytes = new Uint8Array(bin.length);
   for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   var ds = new DecompressionStream('gzip');
   var text = await new Response(new Blob([bytes]).stream().pipeThrough(ds)).text();
   var obj = JSON.parse(text);
-  if (!obj || obj.t !== 'CP' || obj.v !== 1 || !obj.id || !Array.isArray(obj.r) || !obj.r.length) {
-    throw new Error(T.badLink);
+  if (!obj || obj.t !== 'CP' || obj.v !== 1 || !obj.id || !Array.isArray(obj.r) || !obj.r.length || obj.r.length > 400) {
+    _badLink();
   }
+  var seen = {};
   var rows = obj.r.map(function (r) {
-    return { key: r[0], name: r[1] || '', color: r[2] || '', size: r[3] || '', order_qty: r[4] };
+    if (!Array.isArray(r) || r.length < 5 || !_reKey6(r[0])) _badLink();
+    if (seen[r[0]]) _badLink();
+    seen[r[0]] = 1;
+    var q = r[4];
+    if (typeof q !== 'number' || q < 1 || q > 9999 || Math.floor(q) !== q) _badLink();
+    var cost = (r.length > 5 && r[5] != null) ? r[5] : null;
+    if (cost != null && (!_numOk(cost) || cost < 0 || cost > 100000)) _badLink();
+    return { key: r[0],
+             name: String(r[1] || '').slice(0, 80),
+             color: String(r[2] || '').slice(0, 24),
+             size: String(r[3] || '').slice(0, 24),
+             order_qty: q, unit_cost: cost };
   });
-  return { po_id: String(obj.id), name: String(obj.n || ''), lang: obj.l === 'zh' ? 'zh' : 'en', rows: rows };
+  return { po_id: String(obj.id).slice(0, 64), name: String(obj.n || '').slice(0, 80), lang: obj.l === 'zh' ? 'zh' : 'en', rows: rows };
 }
 
 function renderRows() {
   var zh = PO.lang === 'zh';
+  var escAttr = function (v) { return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); };
   var html = PO.rows.map(function (r) {
-    var img = r.img ? '<img src="' + r.img + '" alt="">'
+    var img = r.img ? '<img src="' + escAttr(r.img) + '" alt="">'
       : '<div class="noimg">·</div>';
-    return '<tr data-key="' + r.key + '" data-order="' + r.order_qty + '">' +
+    return '<tr data-key="' + escAttr(r.key) + '" data-order="' + escAttr(r.order_qty) + '"' +
+      (r.unit_cost != null ? ' data-cost="' + escAttr(r.unit_cost) + '"' : '') + '>' +
       '<td class="imgcell">' + img + '</td>' +
       '<td class="infocell"><div class="pname"></div>' +
       '<div class="micro"></div>' +
       '<input class="noteInput" placeholder="' + (zh ? '该行备注(可选)' : 'Note for this line (optional)') + '" maxlength="200"></td>' +
-      '<td class="qtycell"><input class="qtyInput" type="number" inputmode="numeric" min="0" max="9999" step="1" value="' + r.order_qty + '">' +
-      '<div class="lineState micro"></div></td></tr>';
+      '<td class="qtycell"><input class="qtyInput" type="number" inputmode="numeric" min="0" max="9999" step="1" value="' + escAttr(r.order_qty) + '">' +
+      '<div class="lineState micro"></div><div class="costLine micro"></div></td></tr>';
   }).join('');
   document.getElementById('linesBody').innerHTML = html;
   var trs = document.querySelectorAll('#linesBody tr');
   PO.rows.forEach(function (r, i) {
     trs[i].querySelector('.pname').textContent = r.name;
-    trs[i].querySelector('.micro').textContent =
-      r.color + ' / ' + r.size + ' · ' + (zh ? '订购' : 'Order') + ' ' + r.order_qty;
+    var micro = r.color + ' / ' + r.size + ' · ' + (zh ? '订购' : 'Order') + ' ' + r.order_qty;
+    if (r.unit_cost != null) micro += ' · ' + (zh ? '成本单价' : 'Unit cost') + ' ₱' + r.unit_cost.toFixed(2);
+    trs[i].querySelector('.micro').textContent = micro;
   });
 }
 
@@ -2460,15 +2490,26 @@ function readRow(tr) {
 
 function refresh() {
   var ordered = 0, picked = 0, shortLines = 0;
+  var orderedCost = 0, pickedCost = 0, anyCost = false;
   rows().forEach(function (tr) {
     var order = Number(tr.getAttribute('data-order'));
+    var costStr = tr.getAttribute('data-cost');
+    var unitCost = costStr != null && costStr !== '' ? Number(costStr) : null;
+    if (unitCost != null) anyCost = true;
     var r = readRow(tr);
     var q = r.qty;
     var st = tr.querySelector('.lineState');
+    var cl = tr.querySelector('.costLine');
+    if (cl) cl.textContent = '';
     tr.classList.remove('over');
     if (q < 0 || q > 9999) { st.textContent = T.invalidQty; st.className = 'lineState micro st-out'; return; }
     state.qty[r.key] = q;
     ordered += order; picked += q;
+    if (unitCost != null) {
+      orderedCost += order * unitCost;
+      pickedCost += q * unitCost;
+      if (cl) cl.textContent = T.costSub + ' ₱' + (q * unitCost).toFixed(2);
+    }
     var diff = q - order;
     if (q === 0) { st.textContent = T.out; st.className = 'lineState micro st-out'; shortLines++; }
     else if (diff < 0) { st.textContent = T.partShort + ' ' + (-diff); st.className = 'lineState micro st-short'; shortLines++; }
@@ -2478,6 +2519,8 @@ function refresh() {
   $('sOrdered').textContent = ordered; $('sPicked').textContent = picked;
   $('sShort').textContent = Math.max(0, ordered - picked);
   $('sShortLines').textContent = shortLines;
+  $('sOCost').textContent = anyCost ? '₱' + orderedCost.toFixed(2) : '—';
+  $('sPCost').textContent = anyCost ? '₱' + pickedCost.toFixed(2) : '—';
 }
 
 function saveDraft() {
@@ -2546,18 +2589,61 @@ $('btnDone').addEventListener('click', function () {
   });
   if (over && !window.confirm(T.confirmOver)) return;
   var enc = encodePick(PO.po_id, state.rev || 1, cur.rows);
-  $('qrImg').src = makeQrImg(enc.text);
-  $('dlPng').href = $('qrImg').src;
-  var now = new Date();
-  var pad = function (v) { return String(v).padStart(2, '0'); };
-  var timeStr = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate()) + ' ' +
-                pad(now.getHours()) + ':' + pad(now.getMinutes());
-  var ordered = Number($('sOrdered').textContent), picked = Number($('sPicked').textContent);
-  $('rName').textContent = PO.name; $('rPo').textContent = PO.po_id;
-  $('rStatus').textContent = picked === 0 ? T.stEmpty : (picked < ordered ? T.stPartial : T.stComplete);
-  $('rLines').textContent = PO.rows.length;
-  $('rOrdered').textContent = ordered; $('rPicked').textContent = picked;
-  $('rShort').textContent = Math.max(0, ordered - picked); $('rTime').textContent = timeStr;
+  if (CLOUD && CLOUD.submitUrl) {
+    var bd = $('btnDone'); bd.disabled = true;
+    var oldTxt = bd.textContent; bd.textContent = T.submitting;
+    fetch(CLOUD.submitUrl, { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ po8: PO.po_id.slice(-8),
+        poToken: CLOUD.poToken || ((location.pathname.match(new RegExp('^/p/([0-9a-f]{32})/?$')) || [])[1] || ''),
+        rev: state.rev || 1, digest: enc.digest, rows: cur.rows, notes: state.note }) })
+    .then(function (r) { return r.json().then(function (d) { return { status: r.status, d: d }; }); })
+    .then(function (res) {
+      bd.disabled = false; bd.textContent = oldTxt;
+      if (res.status === 200 && res.d && res.d.ok) {
+        fillResultCard();
+        $('rStatus').textContent = T.submitOk;
+        $('rStatus').style.color = '#15803d';
+        $('submitNote').textContent = T.submitOkHint +
+          ' (#' + (res.d.submitId || '').slice(0, 8) + (res.d.duplicate ? ' · dup' : '') + ')';
+        $('submitNote').style.display = 'block';
+        $('qrWrap').style.display = 'none';
+        $('resultBox').style.display = 'block';
+        $('resultBox').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        toast(T.submitFail + ' (HTTP ' + res.status + ': ' + (res.d && res.d.error || 'invalid response') + ')');
+        showQrFallback(enc);
+      }
+    })
+    .catch(function (err) {
+      bd.disabled = false; bd.textContent = oldTxt;
+      toast(T.submitFail + ' (' + (err.message || String(err)) + ')'); showQrFallback(enc);
+    });
+    return;
+  }
+  function showQrFallback(enc2) {
+    fillResultCard();
+    $('qrImg').src = makeQrImg(enc2.text);
+    $('dlPng').href = $('qrImg').src;
+    $('dlPng').parentElement.style.display = 'block';
+    $('qrWrap').style.display = 'block';
+    $('resultBox').style.display = 'block';
+    $('resultBox').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  function fillResultCard() {
+    var now = new Date();
+    var pad = function (v) { return String(v).padStart(2, '0'); };
+    var timeStr = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate()) + ' ' +
+                  pad(now.getHours()) + ':' + pad(now.getMinutes());
+    var ordered = Number($('sOrdered').textContent), picked = Number($('sPicked').textContent);
+    $('rName').textContent = PO.name; $('rPo').textContent = PO.po_id;
+    $('rStatus').textContent = picked === 0 ? T.stEmpty : (picked < ordered ? T.stPartial : T.stComplete);
+    $('rStatus').style.color = '';
+    $('rLines').textContent = PO.rows.length;
+    $('rOrdered').textContent = ordered; $('rPicked').textContent = picked;
+    $('rShort').textContent = Math.max(0, ordered - picked); $('rTime').textContent = timeStr;
+    $('rPCost').textContent = $('sPCost').textContent;
+  }
   var dlBase = (PO.po_id || 'pick').replace(/[^A-Za-z0-9_-]/g, '');
   $('dlPng').download = dlBase + '-pick.png';
   var file = { t: 'CLASSY-PICK', v: 1, po8: PO.po_id.slice(-8), po_id: PO.po_id, name: PO.name,
