@@ -13,7 +13,11 @@
   header { background: #fff; padding: 14px 16px; border-bottom: 1px solid #e3e6eb; position: sticky; top: 0; z-index: 5; }
   header h1 { margin: 0 0 2px; font-size: 18px; }
   header .meta { color: #6b7280; font-size: 13px; overflow-wrap: anywhere; }
-  main { padding: 12px 10px 96px; max-width: 760px; margin: 0 auto; }
+  /* 底部预留:toolbar(fixed)内含可换行的拣货统计行,高度随屏宽/字体缩放变化
+   * (390px 窄屏实测 152px)——固定值必遮挡末行「已拣」按钮。改 CSS 变量
+   * (默认 160px 兜底)+ init/resize 时 JS 实测 toolbar 高度动态写入(见 fitToolbarPad) */
+  :root { --tb-h: 160px; }
+  main { padding: 12px 10px calc(var(--tb-h) + env(safe-area-inset-bottom)); max-width: 760px; margin: 0 auto; }
   table { width: 100%; border-collapse: separate; border-spacing: 0 8px; }
   tr { background: #fff; }
   td { vertical-align: middle; padding: 10px; }
@@ -2765,6 +2769,15 @@ $('regen').addEventListener('click', function () {
   restoreDraft();
   restorePicked();
   refresh();
+  /* 末行防遮挡:实测 toolbar 高度写入 --tb-h(main padding-bottom 随之加高,
+   * 统计行换行数/字体缩放/旋转都自适应;CSS 默认 160px 仅作 JS 失败兜底) */
+  var fitToolbarPad = function () {
+    var tb = document.querySelector('.toolbar');
+    if (tb) document.documentElement.style.setProperty('--tb-h', (tb.offsetHeight + 16) + 'px');
+  };
+  window.fitToolbarPad = fitToolbarPad;
+  fitToolbarPad();
+  window.addEventListener('resize', fitToolbarPad);
 })();
 </script>
 </body>
