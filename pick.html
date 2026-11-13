@@ -28,6 +28,23 @@
   .noteInput { width: 100%; margin-top: 6px; font-size: 13px; padding: 6px 8px; border: 1px solid #e3e6eb; border-radius: 8px; }
   .lineState { margin-top: 4px; min-height: 14px; }
   .st-all { color: #15803d; } .st-short { color: #b45309; } .st-out { color: #b91c1c; } .st-over { color: #7c3aed; }
+  /* 行级「已拣」标记(20261113.12):显式按钮,行淡绿+✓;行色仍反映数量状态,标记叠加其上 */
+  .pickcell { width: 92px; text-align: center; }
+  .pickDoneBtn { width: 100%; padding: 9px 4px; font-size: 13px; border: 1.5px solid #c9d2dd;
+                 border-radius: 10px; background: #fff; color: #47536b; cursor: pointer; }
+  .pickDoneBtn:active { background: #f0f3f7; }
+  tr.picked-done { background: #e9f7ef; }
+  tr.picked-done .pickDoneBtn { background: #16a34a; border-color: #16a34a; color: #fff; font-weight: 600; }
+  /* 回传成功弹层(页面内 overlay,无外部依赖) */
+  .puOverlay { position: fixed; inset: 0; background: rgba(15,23,42,.45); display: flex;
+               align-items: center; justify-content: center; z-index: 100; }
+  .puCard { background: #fff; border-radius: 16px; padding: 26px 22px; max-width: 320px; width: 82%;
+            text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,.25); }
+  .puCard .puIcon { font-size: 34px; color: #16a34a; line-height: 1; margin-bottom: 10px; }
+  .puCard h2 { margin: 0 0 6px; font-size: 17px; }
+  .puCard p { margin: 0 0 16px; color: #6b7280; font-size: 13px; }
+  .puCard button { width: 100%; padding: 12px; font-size: 15px; font-weight: 600; border: 0;
+                   border-radius: 12px; background: #2563eb; color: #fff; cursor: pointer; }
   .toolbar { position: fixed; left: 0; right: 0; bottom: 0; background: #fff; border-top: 1px solid #e3e6eb;
              padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); }
   .stats { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: #4b5563; margin-bottom: 8px; }
@@ -72,10 +89,10 @@
       <div class="row">Time:<b id="rTime"></b></div>
     </div>
     <div id="qrWrap"><img class="qr" id="qrImg" alt="QR"></div>
-    <div><a class="btnGhost" id="dlPng" download="pick.png">Save QR image (long-press on phone)</a>
+    <div id="fbBtns"><a class="btnGhost" id="dlPng" download="pick.png">Save QR image (long-press on phone)</a>
     <a class="btnGhost" id="dlFile" download="pick.json">Save result file (.json)</a></div>
     <p class="hint" id="submitNote" style="display:none"></p>
-    <p class="hint">Result generated — send the QR image back via chat.</p>
+    <p class="hint" id="done2Hint">Result generated — send the QR image back via chat.</p>
     <button class="btnGhost" id="regen" style="cursor:pointer">Edit again (new revision)</button>
   </div>
 </main>
@@ -2394,7 +2411,7 @@ var qrcode = function() {
 "use strict";
 var MODE = "hash";
 var CLOUD = null;
-var T = {"title":"Picking List","store":"CLASSY Purchase Order","po":"PO No.","orderQty":"Order","picked":"Picked","unitCost":"Unit cost","name":"Product","color":"Color","size":"Size","img":"Photo","note":"Note","notePh":"Note for this line (optional)","qtyPh":"Qty","all":"In stock","partShort":"Short","out":"Out of stock","over":"Over-picked","totalOrdered":"Total ordered","totalPicked":"Total picked","totalShort":"Shortage","linesShort":"out-of-stock lines","costUnit":"Unit cost","costSub":"Cost","orderedCost":"Ordered cost","pickedCost":"Picked cost","done":"Finish Picking","doneHint":"Review quantities, then finish picking to generate the QR result.","resultTitle":"CLASSY Picking Result","listName":"List","listNo":"PO No.","statusLabel":"Status","stComplete":"Completed","stPartial":"Partial","stEmpty":"Nothing picked","totalLines":"Lines","orderedL":"Ordered","pickedL":"Picked","shortL":"Short","timeL":"Time","revL":"Rev","savePng":"Save QR image (long-press on phone)","saveFile":"Save result file (.json)","regenerate":"Edit again (new revision)","done2":"Result generated — send the QR image back via chat.","stored":"Draft restored","invalidQty":"Invalid quantity (0-9999)","confirmOver":"Some lines exceed the ordered qty. Continue anyway?","submitting":"Submitting…","submitOk":"Pick result submitted","submitOkHint":"Done — the merchant has been notified automatically. No QR code needed.","submitFail":"Submit failed — your edits are saved, retry or use the QR fallback.","badLink":"This pick link is invalid or corrupted — please ask for a new link."};
+var T = {"title":"Picking List","store":"CLASSY Purchase Order","po":"PO No.","orderQty":"Order","picked":"Picked","unitCost":"Unit cost","name":"Product","color":"Color","size":"Size","img":"Photo","note":"Note","notePh":"Note for this line (optional)","qtyPh":"Qty","all":"In stock","partShort":"Short","out":"Out of stock","over":"Over-picked","totalOrdered":"Total ordered","totalPicked":"Total picked","totalShort":"Shortage","linesShort":"out-of-stock lines","costUnit":"Unit cost","costSub":"Cost","orderedCost":"Ordered cost","pickedCost":"Picked cost","done":"Finish Picking","doneHint":"Review quantities, then finish picking to generate the QR result.","resultTitle":"CLASSY Picking Result","listName":"List","listNo":"PO No.","statusLabel":"Status","stComplete":"Completed","stPartial":"Partial","stEmpty":"Nothing picked","totalLines":"Lines","orderedL":"Ordered","pickedL":"Picked","shortL":"Short","timeL":"Time","revL":"Rev","savePng":"Save QR image (long-press on phone)","saveFile":"Save result file (.json)","regenerate":"Edit again (new revision)","done2":"Result generated — send the QR image back via chat.","stored":"Draft restored","invalidQty":"Invalid quantity (0-9999)","confirmOver":"Some lines exceed the ordered qty. Continue anyway?","submitting":"Submitting…","submitOk":"Pick result submitted","submitOkHint":"Done — the merchant has been notified automatically. No QR code needed.","submitFail":"Submit failed — your edits are saved, retry or use the QR fallback.","badLink":"This pick link is invalid or corrupted — please ask for a new link.","markPicked":"Mark picked","pickedDone":"Picked ✓","confirmUnmarked":"line(s) not marked as picked — submit with current quantities?","ovTitle":"Pick list submitted","ovSub":"Awaiting merchant review.","ovOk":"OK"};
 var INLINE_PO = null;
 var $ = function (id) { return document.getElementById(id); };
 var PO = null;
@@ -2458,7 +2475,8 @@ function renderRows() {
       '<div class="micro"></div>' +
       '<input class="noteInput" placeholder="' + (zh ? '该行备注(可选)' : 'Note for this line (optional)') + '" maxlength="200"></td>' +
       '<td class="qtycell"><input class="qtyInput" type="number" inputmode="numeric" min="0" max="9999" step="1" value="' + escAttr(r.order_qty) + '">' +
-      '<div class="lineState micro"></div><div class="costLine micro"></div></td></tr>';
+      '<div class="lineState micro"></div><div class="costLine micro"></div></td>' +
+      '<td class="pickcell"><button type="button" class="pickDoneBtn">' + (zh ? '标记已拣' : 'Mark picked') + '</button></td></tr>';
   }).join('');
   document.getElementById('linesBody').innerHTML = html;
   var trs = document.querySelectorAll('#linesBody tr');
@@ -2477,6 +2495,28 @@ function restoreDraft() {
     var saved = JSON.parse(localStorage.getItem(lsKey()) || 'null');
     if (saved && saved.qty) { state = saved; toast(T.stored); }
   } catch (e) { /* 草稿损坏按空白开始 */ }
+}
+
+/* ---- 行级「已拣」标记(独立 key 存储,绝不混入 rows/CP1 载荷与摘要) ---- */
+var pickedDone = {};
+function lsPickKey() { return 'classy_pickdone_' + PO.po_id.slice(-8) + '_' + (state.rev || 1); }
+function savePicked() {
+  try { localStorage.setItem(lsPickKey(), JSON.stringify(pickedDone)); } catch (e) { /* 隐私模式忽略 */ }
+}
+function restorePicked() {
+  try {
+    var saved = JSON.parse(localStorage.getItem(lsPickKey()) || 'null');
+    pickedDone = (saved && typeof saved === 'object' && !Array.isArray(saved)) ? saved : {};
+  } catch (e) { pickedDone = {}; }
+  applyPicked();
+}
+function applyPicked() {
+  rows().forEach(function (tr) {
+    var on = !!pickedDone[tr.getAttribute('data-key')];
+    tr.classList.toggle('picked-done', on);
+    var b = tr.querySelector('.pickDoneBtn');
+    if (b) b.textContent = on ? T.pickedDone : T.markPicked;
+  });
 }
 
 function rows() { return Array.prototype.slice.call(document.querySelectorAll('#linesBody tr')); }
@@ -2535,6 +2575,18 @@ document.getElementById('lines').addEventListener('input', function (e) {
   saveDraft();
 });
 
+/* 已拣按钮:点击切换(行淡绿+✓),再点取消;数量输入与按钮独立,改数量不清标记 */
+document.getElementById('lines').addEventListener('click', function (e) {
+  var btn = e.target.closest('.pickDoneBtn'); if (!btn) return;
+  var tr = btn.closest('tr'); if (!tr) return;
+  var key = tr.getAttribute('data-key');
+  var on = !pickedDone[key];
+  if (on) pickedDone[key] = 1; else delete pickedDone[key];
+  tr.classList.toggle('picked-done', on);
+  btn.textContent = on ? T.pickedDone : T.markPicked;
+  savePicked();
+});
+
 function currentRows() {
   var out = [], bad = false;
   rows().forEach(function (tr) {
@@ -2588,6 +2640,9 @@ $('btnDone').addEventListener('click', function () {
     return r.qty > Number(document.querySelectorAll('#linesBody tr')[i].getAttribute('data-order'));
   });
   if (over && !window.confirm(T.confirmOver)) return;
+  // 未标记「已拣」的行 > 0 → 二次确认(不硬阻断,确认后按当前数量提交)
+  var unmarked = cur.rows.filter(function (r) { return !pickedDone[r.key]; }).length;
+  if (unmarked > 0 && !window.confirm(unmarked + ' ' + T.confirmUnmarked)) return;
   var enc = encodePick(PO.po_id, state.rev || 1, cur.rows);
   if (CLOUD && CLOUD.submitUrl) {
     var bd = $('btnDone'); bd.disabled = true;
@@ -2608,8 +2663,11 @@ $('btnDone').addEventListener('click', function () {
           ' (#' + (res.d.submitId || '').slice(0, 8) + (res.d.duplicate ? ' · dup' : '') + ')';
         $('submitNote').style.display = 'block';
         $('qrWrap').style.display = 'none';
+        var fb = $('fbBtns'); if (fb) fb.style.display = 'none';
+        var d2 = $('done2Hint'); if (d2) d2.style.display = 'none';
         $('resultBox').style.display = 'block';
         $('resultBox').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        showSubmittedOverlay();
       } else {
         toast(T.submitFail + ' (HTTP ' + res.status + ': ' + (res.d && res.d.error || 'invalid response') + ')');
         showQrFallback(enc);
@@ -2623,6 +2681,7 @@ $('btnDone').addEventListener('click', function () {
   }
   function showQrFallback(enc2) {
     fillResultCard();
+    setFallbackFiles(enc2);
     $('qrImg').src = makeQrImg(enc2.text);
     $('dlPng').href = $('qrImg').src;
     $('dlPng').parentElement.style.display = 'block';
@@ -2644,22 +2703,50 @@ $('btnDone').addEventListener('click', function () {
     $('rShort').textContent = Math.max(0, ordered - picked); $('rTime').textContent = timeStr;
     $('rPCost').textContent = $('sPCost').textContent;
   }
-  var dlBase = (PO.po_id || 'pick').replace(/[^A-Za-z0-9_-]/g, '');
-  $('dlPng').download = dlBase + '-pick.png';
-  var file = { t: 'CLASSY-PICK', v: 1, po8: PO.po_id.slice(-8), po_id: PO.po_id, name: PO.name,
-    lang: PO.lang, rev: state.rev || 1, picked_at: now.toISOString(),
-    rows: cur.rows.map(function (r) { return { key: r.key, qty: r.qty, note: state.note[r.key] || '' }; }),
-    digest: enc.digest };
-  $('dlFile').href = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(file, null, 1));
-  $('dlFile').download = dlBase + '-pick.json';
+  /* 文件构造(QR 失败路径与无云端路径共用;此前失败路径缺 dlFile.href/文件内容) */
+  function setFallbackFiles(enc2) {
+    var now2 = new Date();
+    var dlBase = (PO.po_id || 'pick').replace(/[^A-Za-z0-9_-]/g, '');
+    $('dlPng').download = dlBase + '-pick.png';
+    var file = { t: 'CLASSY-PICK', v: 1, po8: PO.po_id.slice(-8), po_id: PO.po_id, name: PO.name,
+      lang: PO.lang, rev: state.rev || 1, picked_at: now2.toISOString(),
+      rows: cur.rows.map(function (r) { return { key: r.key, qty: r.qty, note: state.note[r.key] || '' }; }),
+      digest: enc2.digest };
+    $('dlFile').href = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(file, null, 1));
+    $('dlFile').download = dlBase + '-pick.json';
+  }
+  /* 无云端(submitUrl)路径:直接生成二维码 + 结果文件 */
+  fillResultCard();
+  setFallbackFiles(enc);
+  $('qrImg').src = makeQrImg(enc.text);
+  $('dlPng').href = $('qrImg').src;
+  $('dlPng').parentElement.style.display = 'block';
+  $('qrWrap').style.display = 'block';
   $('resultBox').style.display = 'block';
   $('resultBox').scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
+
+/* 提交成功弹层:全屏轻量 overlay,确认按钮关闭(无外部依赖) */
+function showSubmittedOverlay() {
+  var ov = document.createElement('div');
+  ov.className = 'puOverlay';
+  ov.innerHTML = '<div class="puCard"><div class="puIcon">✓</div><h2></h2><p></p>' +
+    '<button type="button"></button></div>';
+  var h = ov.querySelector('h2'), p = ov.querySelector('p'), b = ov.querySelector('button');
+  h.textContent = T.ovTitle; p.textContent = T.ovSub; b.textContent = T.ovOk;
+  b.addEventListener('click', function () {
+    if (ov.parentNode) ov.parentNode.removeChild(ov);
+  });
+  document.body.appendChild(ov);
+}
 
 $('regen').addEventListener('click', function () {
   state.rev = (state.rev || 1) + 1;
   $('revNo').textContent = state.rev;
   $('resultBox').style.display = 'none';
+  pickedDone = {};   // 新修订 = 新一轮拣货,旧已拣标记失效
+  savePicked();
+  applyPicked();
   saveDraft();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 });
@@ -2676,6 +2763,7 @@ $('regen').addEventListener('click', function () {
   $('hName').textContent = PO.name; $('hPo').textContent = PO.po_id;
   renderRows();
   restoreDraft();
+  restorePicked();
   refresh();
 })();
 </script>
